@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.angular/
+backend-nest/dist/
+frontend-angular/dist/
+.env
+.env.*
+!.env.example

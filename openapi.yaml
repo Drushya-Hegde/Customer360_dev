@@ -1,0 +1,612 @@
+openapi: 3.0.3
+info:
+  title: Customer 360 & Relationship Copilot API
+  version: 0.1.0
+  description: >
+    Contract-first API for the Customer 360 & Relationship Copilot.
+    Frontend builds against this + the mock server. Backend builds
+    real implementations against this + db/schema.sql. Neither team
+    waits on the other — swap the mock server for the real one behind
+    the same paths and nothing on the frontend needs to change.
+
+    Role-based access is enforced server-side, not in the frontend:
+    every response is already masked/filtered/scoped for the
+    requesting user's role. The frontend never decides what a role
+    is allowed to see — the API decides, and returns only that.
+
+servers:
+  - url: http://localhost:4000/api
+    description: Mock server (Milestone 1)
+  - url: https://api.customer360.internal/v1
+    description: Real backend (Milestone 2, same paths)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Auth
+  - name: Customers
+  - name: Accounts & Loans & Cards
+  - name: Transactions
+  - name: Interactions
+  - name: Service Requests
+  - name: Copilot (AI)
+  - name: Dashboard
+  - name: Audit
+
+paths:
+
+  /auth/users:
+    get:
+      tags: [Auth]
+      summary: List demo identities available to sign in as (mock-server only; real IdP replaces this)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/PublicUser' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in and receive a bearer token carrying the user's role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  user: { $ref: '#/components/schemas/PublicUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /customers:
+    get:
+      tags: [Customers]
+      summary: Search customers (role-scoped and role-masked server-side)
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+          description: Free-text match on name, customer ID, email, or phone
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/CustomerSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /customers/{customerId}:
+    get:
+      tags: [Customers]
+      summary: Get one customer's profile (fields masked per requester role)
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomerProfile' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /customers/{customerId}/accounts:
+    get:
+      tags: [Accounts & Loans & Cards]
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Account' } }
+
+  /customers/{customerId}/loans:
+    get:
+      tags: [Accounts & Loans & Cards]
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Loan' } }
+
+  /customers/{customerId}/cards:
+    get:
+      tags: [Accounts & Loans & Cards]
+      description: Card numbers are always returned pre-masked by the API. The full PAN never leaves the backend.
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Card' } }
+
+  /customers/{customerId}/transactions:
+    get:
+      tags: [Transactions]
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: pageSize
+          schema: { type: integer, default: 20 }
+        - in: query
+          name: type
+          schema: { type: string, enum: [credit, debit, failed] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  total: { type: integer }
+                  items: { type: array, items: { $ref: '#/components/schemas/Transaction' } }
+
+  /customers/{customerId}/interactions:
+    get:
+      tags: [Interactions]
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/Interaction' } }
+    post:
+      tags: [Interactions]
+      summary: Log a new interaction (RM only)
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel, notes]
+              properties:
+                channel: { type: string, enum: [Call, Branch visit, Email, Video call] }
+                notes: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Interaction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /customers/{customerId}/service-requests:
+    get:
+      tags: [Service Requests]
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ServiceRequest' } }
+    post:
+      tags: [Service Requests]
+      summary: Raise a service request (RM only)
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+
+  /service-requests:
+    get:
+      tags: [Service Requests]
+      summary: Cross-customer queue (Operations sees all, RM sees own portfolio)
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [open, in_progress, closed] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ServiceRequestWithCustomer' } }
+
+  /service-requests/{srId}:
+    patch:
+      tags: [Service Requests]
+      summary: Transition status. Server enforces open→in_progress→closed (and back to open); any other transition is rejected.
+      parameters:
+        - in: path
+          name: srId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [open, in_progress, closed] }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceRequest' }
+        '409':
+          description: Invalid status transition
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /customers/{customerId}/ai/summary:
+    post:
+      tags: [Copilot (AI)]
+      summary: Generate a grounded factual summary (RM only). Mock server returns a templated response; real backend calls an LLM constrained to this customer's data.
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiTextResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /customers/{customerId}/ai/next-best-action:
+    post:
+      tags: [Copilot (AI)]
+      summary: Run business-rule eligibility first, then return an AI explanation for the top eligible action. Advisory only — nothing here is executed automatically.
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NextBestAction' }
+
+  /customers/{customerId}/ai/next-best-action/{actionId}/decision:
+    post:
+      tags: [Copilot (AI)]
+      summary: Record the RM's Accept/Reject decision on a suggested action
+      parameters:
+        - $ref: '#/components/parameters/CustomerId'
+        - in: path
+          name: actionId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [accept, reject] }
+      responses:
+        '200': { description: OK }
+
+  /customers/{customerId}/ai/chat:
+    post:
+      tags: [Copilot (AI)]
+      summary: Ask a grounded question about this customer; every answer must cite its source field
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer: { type: string }
+                  citations:
+                    type: array
+                    items: { type: string }
+
+  /customers/{customerId}/ai/contact-plan:
+    post:
+      tags: [Copilot (AI)]
+      summary: Draft an outreach plan (talking points, channel, timing). Always returned as a draft — never auto-sent.
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AiTextResponse' }
+    patch:
+      tags: [Copilot (AI)]
+      summary: Edit and/or accept or reject the draft
+      parameters: [{ $ref: '#/components/parameters/CustomerId' }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string }
+                status: { type: string, enum: [draft, accepted, rejected] }
+      responses:
+        '200': { description: OK }
+
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Portfolio-level aggregates for Managers — no individual PII
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /audit:
+    get:
+      tags: [Audit]
+      summary: Search the audit trail (Auditor only)
+      parameters:
+        - in: query
+          name: user
+          schema: { type: string }
+        - in: query
+          name: action
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/AuditEntry' } }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /audit/export:
+    get:
+      tags: [Audit]
+      summary: Export the filtered audit trail as CSV (Auditor only)
+      responses:
+        '200':
+          description: CSV file
+          content:
+            text/csv:
+              schema: { type: string, format: binary }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  parameters:
+    CustomerId:
+      in: path
+      name: customerId
+      required: true
+      schema: { type: string }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    Forbidden:
+      description: Authenticated, but this role can't access this resource
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+    NotFound:
+      description: Not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }
+
+    PublicUser:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [RM, Manager, Operations, Auditor] }
+        branch: { type: string }
+
+    CustomerSummary:
+      type: object
+      description: Fields are pre-masked by the API based on the requester's role.
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, description: "Masked unless requester is the assigned RM" }
+        phone: { type: string, description: "Masked unless requester is the assigned RM" }
+        segment: { type: string, enum: [Premium, Regular] }
+        riskFlag: { type: string, enum: [Low, Medium, High] }
+        openServiceRequests: { type: integer }
+
+    CustomerProfile:
+      allOf:
+        - $ref: '#/components/schemas/CustomerSummary'
+        - type: object
+          properties:
+            address: { type: string, description: "Returned only to the assigned RM; masked placeholder otherwise" }
+            kyc: { type: string, enum: [Verified, Pending] }
+            consent:
+              type: object
+              properties:
+                marketing: { type: boolean }
+                dataSharing: { type: boolean }
+                updatedOn: { type: string, format: date }
+            assignedRm: { type: string }
+
+    Account:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        balance: { type: number }
+        status: { type: string }
+        opened: { type: string, format: date }
+
+    Loan:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        principal: { type: number }
+        outstanding: { type: number }
+        emi: { type: number }
+        missedEmis: { type: integer }
+        status: { type: string }
+
+    Card:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        maskedNumber: { type: string, example: "4111 11•• •••• 1111" }
+        limit: { type: number }
+        used: { type: number }
+        status: { type: string }
+
+    Transaction:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        description: { type: string }
+        type: { type: string, enum: [credit, debit, failed] }
+        amount: { type: number }
+        balanceAfter: { type: number }
+
+    Interaction:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        rm: { type: string }
+        channel: { type: string }
+        notes: { type: string }
+
+    ServiceRequest:
+      type: object
+      properties:
+        id: { type: string }
+        type: { type: string }
+        status: { type: string, enum: [open, in_progress, closed] }
+        assignedTo: { type: string }
+        createdAt: { type: string, format: date }
+        history:
+          type: array
+          items:
+            type: object
+            properties:
+              ts: { type: string }
+              by: { type: string }
+              note: { type: string }
+
+    ServiceRequestWithCustomer:
+      allOf:
+        - $ref: '#/components/schemas/ServiceRequest'
+        - type: object
+          properties:
+            customerId: { type: string }
+            customerName: { type: string }
+
+    AiTextResponse:
+      type: object
+      properties:
+        text: { type: string }
+        groundedIn:
+          type: array
+          items: { type: string }
+          description: Which data sections were passed to the model for this response
+
+    NextBestAction:
+      type: object
+      properties:
+        eligibleActions:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              label: { type: string }
+              rule: { type: string }
+        topAction:
+          type: object
+          properties:
+            id: { type: string }
+            label: { type: string }
+            explanation: { type: string }
+
+    DashboardSummary:
+      type: object
+      properties:
+        customerCount: { type: integer }
+        totalBalance: { type: number }
+        serviceRequestsByStatus:
+          type: object
+          properties:
+            open: { type: integer }
+            in_progress: { type: integer }
+            closed: { type: integer }
+        riskDistribution:
+          type: object
+          properties:
+            Low: { type: integer }
+            Medium: { type: integer }
+            High: { type: integer }
+
+    AuditEntry:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        user: { type: string }
+        role: { type: string }
+        action: { type: string }
+        details: { type: string }

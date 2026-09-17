@@ -1,0 +1,39 @@
+services:
+  api:
+    build: ./apps/api
+    environment:
+      PORT: 4100
+      FRONTEND_ORIGIN: http://localhost:4200
+      DATABASE_URL: postgresql://customer360:customer360_dev@postgres:5432/customer360
+    ports:
+      - "4100:4100"
+    depends_on:
+      - postgres
+
+  web:
+    build: ./apps/web
+    ports:
+      - "4200:80"
+    depends_on:
+      - api
+
+  demo-app:
+    build: .
+    ports:
+      - "4000:4000"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: customer360
+      POSTGRES_USER: customer360
+      POSTGRES_PASSWORD: customer360_dev
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+volumes:
+  postgres_data:
+

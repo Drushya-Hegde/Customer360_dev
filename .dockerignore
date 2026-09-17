@@ -1,0 +1,8 @@
+node_modules
+frontend-angular/node_modules
+frontend-angular/.angular
+frontend-angular/dist
+backend-nest/node_modules
+backend-nest/dist
+.git
+*.log
