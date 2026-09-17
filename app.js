@@ -77,7 +77,7 @@ async function loginAs(userId, password) {
       return;
     }
     if (!selectedUser || username !== selectedUser.username) {
-      state.error = `This username does not belong to the selected ${selectedUser?.role || 'role'} account.`;
+      state.error = `Enter ${selectedUser?.username || 'the username'} for the selected account, then sign in again.`;
       render();
       return;
     }
