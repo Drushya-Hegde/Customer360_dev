@@ -55,6 +55,16 @@ docker compose up --build
 
 Compose starts only the canonical frontend on `4200` and API on `4100`. The demo API uses in-memory seed data so the trainer workflow works without Keycloak, databases, Ollama, or observability containers.
 
+### Optional Keycloak identity service
+
+The Compose file includes an isolated Keycloak container. It does not replace the working 4000 demo login or modify the customer PostgreSQL database. Start it with:
+
+```bash
+docker compose up -d keycloak
+```
+
+Open `http://localhost:8080`, choose the `customer360` realm, and sign in to the admin console with `admin` / `admin123` for local development. The realm imports the four demo users and the `customer360-web` OpenID Connect client. User changes persist in the `keycloak_data` volume. Set `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_ADMIN_PASSWORD` in a local `.env` file before using this outside local development.
+
 ## Security notes
 
 The demo token store is intentionally not production authentication. Replace it with Keycloak-issued JWT validation before deployment. Keep raw card/PAN data out of application databases, enforce portfolio checks in every service handler, redact sensitive fields at the API boundary, and retain immutable audit events for data access and AI decisions.
