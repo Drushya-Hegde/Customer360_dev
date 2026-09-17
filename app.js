@@ -87,6 +87,7 @@ async function startKeycloakLogin() {
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid profile email',
+    prompt: 'login',
     state: stateValue,
     code_challenge: base64Url(digest),
     code_challenge_method: 'S256',
