@@ -61,10 +61,65 @@ function initials(name) { return name.split(' ').map(p => p[0]).slice(0, 2).join
 async function boot() {
   try {
     state.loginUsers = await api('/auth/users');
+    if (await completeKeycloakLogin()) {
+      render();
+      return;
+    }
   } catch (e) {
-    state.error = "Can't reach the API at " + window.API_BASE + ". Is the mock server running? (cd mock-server && npm start)";
+    state.error = e.message || "Can't complete Keycloak sign-in.";
   }
   render();
+}
+
+function base64Url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function startKeycloakLogin() {
+  const verifier = base64Url(crypto.getRandomValues(new Uint8Array(32)));
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const stateValue = base64Url(crypto.getRandomValues(new Uint8Array(24)));
+  sessionStorage.setItem('keycloak_code_verifier', verifier);
+  sessionStorage.setItem('keycloak_state', stateValue);
+  const redirectUri = window.location.origin + '/';
+  const params = new URLSearchParams({
+    client_id: 'customer360-web',
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid profile email',
+    state: stateValue,
+    code_challenge: base64Url(digest),
+    code_challenge_method: 'S256',
+  });
+  window.location.assign(`${window.KEYCLOAK_URL}/realms/customer360/protocol/openid-connect/auth?${params}`);
+}
+
+async function completeKeycloakLogin() {
+  const params = new URLSearchParams(window.location.search);
+  const code = params.get('code');
+  if (!code) return false;
+  if (params.get('state') !== sessionStorage.getItem('keycloak_state')) {
+    throw new Error('Invalid Keycloak login state. Please try signing in again.');
+  }
+  const { token, user } = await api('/auth/keycloak/callback', {
+    method: 'POST',
+    body: {
+      code,
+      codeVerifier: sessionStorage.getItem('keycloak_code_verifier'),
+      redirectUri: window.location.origin + '/',
+    },
+  });
+  sessionStorage.removeItem('keycloak_code_verifier');
+  sessionStorage.removeItem('keycloak_state');
+  window.history.replaceState({}, document.title, window.location.pathname);
+  state.token = token;
+  state.user = user;
+  state.view = user.role === 'Manager' ? 'dashboard' : user.role === 'Auditor' ? 'audit' : user.role === 'Operations' ? 'queue' : 'search';
+  if (state.view === 'search') await loadSearch();
+  if (state.view === 'dashboard') await loadDashboard();
+  if (state.view === 'queue') await loadQueue();
+  if (state.view === 'audit') await loadAudit();
+  return true;
 }
 
 async function loginAs(userId, password) {
@@ -342,6 +397,8 @@ function renderLogin() {
     <div class="login-card">
       <div class="login-brand">Ledger</div>
       <div class="login-sub">Customer 360 &amp; Relationship Copilot — sign in to continue</div>
+      <button class="btn primary" style="width:100%; justify-content:center; margin-bottom:14px;" onclick="startKeycloakLogin()">Sign in with Keycloak</button>
+      <div class="login-sub" style="text-align:center; margin-bottom:10px;">Or use the role sign-in below</div>
       <input id="login-username" class="login-password" type="text" placeholder="Username" autocomplete="username">
       <input id="login-password" class="login-password" type="password" placeholder="Password" autocomplete="current-password">
       ${state.loginUsers.map(u => `

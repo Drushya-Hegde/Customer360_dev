@@ -22,6 +22,7 @@ services:
     environment:
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/customer360/protocol/openid-connect/token
       KEYCLOAK_CLIENT_ID: customer360-web
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/customer360
     ports:
       - "4000:4000"
     depends_on:

@@ -31,9 +31,16 @@ app.use(express.static(__dirname));
 const PORT = process.env.PORT || 4000;
 const KEYCLOAK_TOKEN_URL = process.env.KEYCLOAK_TOKEN_URL || 'http://keycloak:8080/realms/customer360/protocol/openid-connect/token';
 const KEYCLOAK_CLIENT_ID = process.env.KEYCLOAK_CLIENT_ID || 'customer360-web';
+const KEYCLOAK_ISSUER = process.env.KEYCLOAK_ISSUER || 'http://localhost:8080/realms/customer360';
 
 // ---------------- fake session store (real backend: JWT/OIDC) ----------------
 const SESSIONS = {}; // token -> user
+
+function decodeJwtPayload(token) {
+  const payload = token?.split('.')[1];
+  if (!payload) throw new Error('Missing Keycloak token claims');
+  return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+}
 
 function logAudit(user, action, details) {
   AUDIT_LOG.unshift({ ts: new Date().toISOString(), user: user ? user.name : 'system', role: user ? user.role : '-', action, details: details || '' });
@@ -154,8 +161,49 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, name: user.name, role: user.role, branch: user.branch } });
 });
 
+app.post('/api/auth/keycloak/callback', async (req, res) => {
+  const { code, codeVerifier, redirectUri } = req.body || {};
+  if (!code || !codeVerifier || !redirectUri) {
+    return res.status(400).json({ error: 'bad_request', message: 'Keycloak authorization code, verifier, and redirect URI are required' });
+  }
+
+  try {
+    const tokenResponse = await fetch(KEYCLOAK_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: KEYCLOAK_CLIENT_ID,
+        grant_type: 'authorization_code',
+        code,
+        code_verifier: codeVerifier,
+        redirect_uri: redirectUri,
+      }),
+    });
+    if (!tokenResponse.ok) {
+      const details = await tokenResponse.text();
+      console.error('Keycloak authorization failed:', details);
+      return res.status(401).json({ error: 'unauthorized', message: 'Keycloak authorization failed' });
+    }
+    const tokenData = await tokenResponse.json();
+    const profile = decodeJwtPayload(tokenData.id_token || tokenData.access_token);
+    if (profile.iss !== KEYCLOAK_ISSUER || (profile.exp && profile.exp <= Math.floor(Date.now() / 1000))) {
+      return res.status(401).json({ error: 'unauthorized', message: 'Invalid Keycloak token claims' });
+    }
+    const user = USERS.find(candidate => candidate.username === profile.preferred_username);
+    if (!user) return res.status(403).json({ error: 'forbidden', message: 'Keycloak user is not mapped to a Customer 360 role' });
+
+    const token = 'demo-token-' + user.id + '-' + Date.now();
+    SESSIONS[token] = user;
+    logAudit(user, 'LOGIN', `Signed in through Keycloak as ${user.role}`);
+    res.json({ token, user: { id: user.id, name: user.name, role: user.role, branch: user.branch } });
+  } catch (error) {
+    console.error('Keycloak callback unavailable:', error.message);
+    res.status(503).json({ error: 'identity_provider_unavailable', message: 'Keycloak authentication is unavailable' });
+  }
+});
+
 app.use('/api', (req, res, next) => {
-  if (req.path === '/auth/users' || req.path === '/auth/login') return next();
+  if (req.path === '/auth/users' || req.path === '/auth/login' || req.path === '/auth/keycloak/callback') return next();
   auth(req, res, next);
 });
 
