@@ -349,7 +349,7 @@ function renderLogin() {
           <div><div class="n">${u.name}</div><div class="r">${u.username} · ${u.role} · ${u.branch}</div></div>
           <div class="btn small">Sign in →</div>
         </div>`).join('')}
-      <div class="login-foot">Frontend calling the live mock API at <span class="mono">${window.API_BASE}</span>. Swap that URL for the real backend later — this screen and everything else stays the same.</div>
+      <div class="login-foot">Sign-in is verified by Keycloak. The application API is <span class="mono">${window.API_BASE}</span>.</div>
     </div>
   </div>`;
 }

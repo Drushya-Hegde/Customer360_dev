@@ -29,6 +29,8 @@ app.use(express.json());
 app.use(express.static(__dirname));
 
 const PORT = process.env.PORT || 4000;
+const KEYCLOAK_TOKEN_URL = process.env.KEYCLOAK_TOKEN_URL || 'http://keycloak:8080/realms/customer360/protocol/openid-connect/token';
+const KEYCLOAK_CLIENT_ID = process.env.KEYCLOAK_CLIENT_ID || 'customer360-web';
 
 // ---------------- fake session store (real backend: JWT/OIDC) ----------------
 const SESSIONS = {}; // token -> user
@@ -121,11 +123,31 @@ app.get('/api/auth/users', (req, res) => {
   res.json(USERS.map(u => ({ id: u.id, username: u.username, name: u.name, role: u.role, branch: u.branch })));
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const user = USERS.find(u => u.id === req.body.userId && u.username === req.body.username);
-  if (!user || req.body.password !== user.password) {
+  if (!user) {
     return res.status(401).json({ error: 'unauthorized', message: 'Invalid username or password' });
   }
+
+  try {
+    const keycloakResponse = await fetch(KEYCLOAK_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: KEYCLOAK_CLIENT_ID,
+        grant_type: 'password',
+        username: req.body.username,
+        password: req.body.password || '',
+      }),
+    });
+    if (!keycloakResponse.ok) {
+      return res.status(401).json({ error: 'unauthorized', message: 'Invalid username or password' });
+    }
+  } catch (error) {
+    console.error('Keycloak authentication unavailable:', error.message);
+    return res.status(503).json({ error: 'identity_provider_unavailable', message: 'Keycloak authentication is unavailable' });
+  }
+
   const token = 'demo-token-' + user.id + '-' + Date.now();
   SESSIONS[token] = user;
   logAudit(user, 'LOGIN', `Signed in as ${user.role}`);

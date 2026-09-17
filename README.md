@@ -67,4 +67,4 @@ Open `http://localhost:8080`, choose the `customer360` realm, and sign in to the
 
 ## Security notes
 
-The demo token store is intentionally not production authentication. Replace it with Keycloak-issued JWT validation before deployment. Keep raw card/PAN data out of application databases, enforce portfolio checks in every service handler, redact sensitive fields at the API boundary, and retain immutable audit events for data access and AI decisions.
+The 4000 application verifies login credentials through the containerized Keycloak realm and then preserves its existing application session for the current demo workflows. The NestJS API has Keycloak JWT guard support for protected production routes. Keep raw card/PAN data out of application databases, enforce portfolio checks in every service handler, redact sensitive fields at the API boundary, and retain immutable audit events for data access and AI decisions.

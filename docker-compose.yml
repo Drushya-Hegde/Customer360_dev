@@ -19,8 +19,13 @@ services:
 
   demo-app:
     build: .
+    environment:
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/customer360/protocol/openid-connect/token
+      KEYCLOAK_CLIENT_ID: customer360-web
     ports:
       - "4000:4000"
+    depends_on:
+      - keycloak
 
   postgres:
     image: pgvector/pgvector:pg16
